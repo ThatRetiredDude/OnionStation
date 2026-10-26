@@ -7,3 +7,5 @@ Status: planning. See `docs/` for the plan.
 
 "Tor" is a trademark of The Tor Project. This project uses Tor and is not affiliated with or
 endorsed by The Tor Project.
+
+License: BSD 3-Clause (see `LICENSE`), the same license Tor uses.
