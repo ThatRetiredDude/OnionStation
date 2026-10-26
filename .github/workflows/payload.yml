@@ -1,0 +1,77 @@
+name: payload
+
+# Builds Tor as a PS5 payload (payload/build.sh) and uploads
+# onionstation-tor.elf. A second job builds the same Tor and start code for
+# Linux and checks that the default settings bootstrap to 100%.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  ps5:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq clang-18 lld-18 llvm-18 autoconf automake libtool pkg-config wget python3
+          echo /usr/lib/llvm-18/bin >> "$GITHUB_PATH"
+      - name: Cache the SDK and libraries
+        uses: actions/cache@v4
+        with:
+          path: .deps
+          key: ps5-deps-${{ hashFiles('payload/build.sh') }}
+      - name: Build the payload
+        run: payload/build.sh ps5
+      - uses: actions/upload-artifact@v4
+        with:
+          name: onionstation-tor-ps5
+          path: build/ps5/onionstation-tor.elf
+      - name: Show the build logs on failure
+        if: failure()
+        run: tail -n 100 .deps/src-ps5/*.log .deps/sdk-build.log 2>/dev/null || true
+
+  host-bootstrap:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq clang-18 lld-18 llvm-18 autoconf automake libtool pkg-config wget
+          echo /usr/lib/llvm-18/bin >> "$GITHUB_PATH"
+      - name: Cache the libraries
+        uses: actions/cache@v4
+        with:
+          path: .deps
+          key: host-deps-${{ hashFiles('payload/build.sh') }}
+      - name: Build for Linux
+        run: payload/build.sh host
+      - name: Bootstrap Tor with the default settings
+        run: |
+          dir="$RUNNER_TEMP/onionstation"
+          ONIONSTATION_DIR="$dir" build/host/onionstation-tor &
+          pid=$!
+          for i in $(seq 1 120); do
+            if grep -q "Bootstrapped 100%" "$dir/tor.log" 2>/dev/null; then
+              echo "Bootstrapped after about $((i * 2)) seconds"
+              # The SOCKS port works end to end.
+              curl -sS --max-time 60 --socks5-hostname 127.0.0.1:9050 https://check.torproject.org/api/ip
+              echo
+              kill "$pid"
+              exit 0
+            fi
+            kill -0 "$pid" 2>/dev/null || { echo "Tor exited"; cat "$dir/tor.log"; exit 1; }
+            sleep 2
+          done
+          echo "No bootstrap within 4 minutes"
+          cat "$dir/tor.log"
+          kill "$pid"
+          exit 1
+      - name: Show the build logs on failure
+        if: failure()
+        run: tail -n 100 .deps/src-host/*.log 2>/dev/null || true
