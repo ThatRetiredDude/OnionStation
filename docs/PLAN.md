@@ -646,7 +646,12 @@ Jared's own network can't test bridge or relay modes from outside, so:
   contentId between releases; downloadDataSize no higher than 256; ZIP with PPSA99557/ at its
   root; bump contentVersion and tag the same string; never replace a listed release ZIP; catalog
   PRs change one file; description up to 200 characters; author "ThatRetiredDude"; icon from
-  Jared's own logo.
+  Jared's own logo (added 2026-10-26: `assets/logo-original.jpg`, `sce_sys/icon0.png` 512×512,
+  `sce_sys/pic0.png` 1920×1080).
+- **Logo trademark check (open):** the supplied logo spells "Tor" and draws the "o" as the
+  PlayStation "PS" mark. Both are trademarks (The Tor Project; Sony). The Tor Project's policy
+  asks for permission before using "Tor" this way, and Sony's mark on a jailbreak-only app invites
+  a takedown. Options: ask the Tor Project, or change the word (e.g. "Onion") and the "o".
 - **Store description draft (under 200):** "Turn your PS5 into a Tor bridge or relay that adapts
   to your network, or help through Snowflake. Runs in the background, even during games. Opens
   onion sites. Needs a jailbroken PS5."
