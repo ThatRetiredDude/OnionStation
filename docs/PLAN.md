@@ -559,8 +559,8 @@ New pieces in this revision:
 | STUN check | libjuice (C) | Already in via libdatachannel | MPL-2.0 |
 | HTML reader | litehtml (C++) | Port | BSD-3 |
 
-Arti (Rust) is out: no Rust target for the PS5. None of these forces GPL; reusing TokenStation5's
-GPL payload code would make the repo GPL-3.0 like WireStationVPN.
+Arti (Rust) is out: no Rust target for the PS5. None of these forces GPL, and the repo is BSD-3-Clause
+like Tor. Reusing TokenStation5's GPL payload code would force GPL-3.0, so don't copy it.
 
 ## Testing inbound modes without an open port
 
@@ -656,13 +656,18 @@ Jared's own network can't test bridge or relay modes from outside, so:
   to your network, or help through Snowflake. Runs in the background, even during games. Opens
   onion sites. Needs a jailbroken PS5."
 
-## Decisions still open
+## Decisions
 
-1. Decided 2026-10-26: Snowflake is an optional setting, off by default; exit relay is offered as
-   an expert-only manual mode with the Tor Project's at-home warning. Approach: warn clearly,
-   then let users decide; only technical limits block a mode.
-2. Whether public bridge and relay modes are in scope at all, or only private bridges (recommended:
-   private bridge first, public bridge next, relay last, since a PS5's uptime suits relays least).
-3. Whether censored-network client transports (step 11) are in scope; they are a large rewrite
-   for a smaller audience of PS5 owners inside censored countries.
-4. Repo license.
+All decided 2026-10-26 by Jared:
+
+1. Snowflake is an optional setting, off by default; exit relay is offered as an expert-only
+   manual mode with the Tor Project's at-home warning. Approach: warn clearly, then let users
+   decide; only technical limits block a mode.
+2. Full node: private bridge, public bridge and relay are all in scope, in that build order.
+3. Censored-network support is in scope: client transports (Snowflake, obfs4, WebTunnel) and
+   Connection Assist (build step 12).
+4. License: 3-clause BSD, the same as Tor (`LICENSE`). This means no code copied from
+   TokenStation5's or WireStationVPN's GPL payloads; anything needed from them gets rewritten,
+   or Jared relicenses his own parts of it.
+
+Still open: the logo, which Jared is redrawing without "Tor" and the PlayStation mark.
