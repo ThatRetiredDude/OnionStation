@@ -11,6 +11,10 @@ onion sites.
 
 ## Short version
 
+- **OnionStation5 is a full Tor node, not a single-mode app.** Every role a home user can safely
+  run is first-class: Snowflake proxy, private bridge, public bridge, guard/middle relay, onion
+  services and the Tor client. No user has to pick one; **Auto mode** (the default) runs the
+  strongest role their network allows and moves up or down by itself when the network changes.
 - **Snowflake proxy works on every network** that can reach the internet: any NAT, CGNAT, double
   NAT, IPv6-only, no port forwarding, no router access. It is the default mode and the first thing
   to build.
@@ -19,9 +23,9 @@ onion sites.
   CGNAT and double NAT, checks IPv6, and offers a step-by-step manual port-forward guide. Tor's own
   reachability self-test makes the final call. The app never claims a mode works until that test
   passes.
-- **The app recommends a mode instead of asking people to understand NAT.** A setup check
-  classifies the network and suggests: Snowflake only, Snowflake plus private bridge, bridge, or
-  relay. The user can always choose a lighter mode than the one suggested.
+- **Nobody has to understand NAT.** A setup check classifies the network (about 25 situations are
+  covered below) and Auto mode acts on it. The user can pin a mode or set a ceiling ("never more
+  than a bridge") instead.
 - **No exit node.** Unchanged from the first plan (see "Risks"). It stays out of the app.
 - **Onion services from the PS5 need no open port at all.** They connect outward, so they work
   behind any NAT. The first use is a private status page the owner can open from their phone
@@ -53,6 +57,48 @@ Modes can run together: Snowflake proxy plus Tor client plus an onion service is
 combination for someone with no open port. A bridge and a relay can't both run on the same Tor
 instance, and the app shouldn't try.
 
+## Auto mode: the strongest node each network allows
+
+Auto mode is the default. It treats the roles as a ladder and climbs as far as the network,
+the user's consent and the measured bandwidth allow:
+
+| Rung | Role | Needs |
+|---|---|---|
+| 0 | Tor client only | Tor can bootstrap (with bridges if needed) |
+| 1 | Snowflake proxy | Outbound UDP works and the network isn't censored |
+| 2 | Private bridge | Rung 1, plus a reachable TCP port (self-test passed) |
+| 3 | Public bridge | Rung 2, plus several days of mostly-on uptime |
+| 4 | Guard/middle relay | Reachable IPv4 ORPort, at least ~16 Mbit/s each way, stable IP, steady uptime, and the user's explicit OK to publish their IP |
+
+How it behaves:
+
+- **Contribute from the first minute.** Snowflake starts as soon as the setup check finishes
+  (rung 1). Probing for inbound reachability happens in the background while Snowflake already
+  helps people.
+- **Snowflake keeps running** alongside a bridge or relay if upload allows; it is a separate
+  process from Tor and serves different users. Bandwidth limits are split between them.
+- **Promote only on proof.** A rung is reached only when Tor's own self-test confirms it (and
+  for rung 4, after the bandwidth check and an uptime history the app keeps itself).
+- **Consent at the point it matters.** Opening a router port (rung 2) and publishing the IP as a
+  relay (rung 4) are each asked once, in plain words, the first time Auto mode wants them. A "no"
+  is remembered and becomes the ceiling.
+- **Demote on any change.** Lost port mapping, a new IP that turns out to be CGNAT, failed
+  reachability, the monthly cap reached, the network switched (Wi-Fi to wired, different router),
+  or signs of censorship: drop to the highest rung that still holds, say why on the status screen,
+  and keep checking.
+- **No flapping.** Relays that come and go hurt the Tor network and never earn flags. Auto mode
+  waits (hours, not minutes) before promoting again after a demotion, and moves up to relay only
+  after a stretch of stable bridge-level uptime.
+- **Re-check triggers:** app start, interface address change, Tor reporting a new external
+  address, lease renewal failure, and a periodic check (every few hours).
+- **Separate identities per role.** A bridge must never reuse keys that were once a public relay
+  (that relay's IP and fingerprint are public, so the bridge would be known from day one). Each
+  role keeps its own DataDirectory under /download0; switching roles switches directories.
+- **Censorship flips the ladder.** If the network looks censored, Auto mode drops all
+  help-others roles and becomes a client with bridges (see "Censored networks").
+
+Manual control stays available: pin any rung, set a ceiling, or turn individual roles off.
+
 ## Every kind of network, and what the app recommends
 
 | Network | How the app recognizes it | Recommended mode | Also possible |
@@ -68,6 +114,22 @@ instance, and the app shouldn't try.
 | Shared or institutional network (dorm, workplace, building, café, hotel) | User answers "I don't control this network" | Snowflake, or client only if the network's rules forbid proxies | Nothing inbound. Never relays on networks the user doesn't control. |
 | Censored country (Tor blocked) | Tor bootstrap stalls, or the Snowflake broker can't be reached; or user says so | **Client with bridges only.** No proxy, relay or bridge (useless there and riskier) | Onion browsing through bridges |
 | Network that only allows outbound 80/443 | Outbound tests on other ports fail | Client with `ReachableAddresses` limited to 80/443, or bridges on 443 | Snowflake usually still works (WebRTC over UDP/TURN is not guaranteed) |
+| ISP blocks some inbound ports (often 25, 80, 443, or everything below 1024) | Mapping works but the self-test fails on a low port | Bridge or relay on a random high port | Snowflake |
+| ISP terms forbid "servers" | Can't be detected; the app mentions it once before rung 2 | User's call; Snowflake is client-like and generally fine | Bridge/relay at the user's risk |
+| UDP blocked outbound | STUN and the Snowflake NAT check time out | Bridge or relay if inbound TCP works; otherwise client only | Nothing UDP-based |
+| A proxy is required to reach the internet (some schools, workplaces) | Direct connections fail; user enters a proxy | Client through Tor's `HTTPSProxy` / `Socks5Proxy` options | Nothing that helps others (and the network's owner likely forbids it) |
+| IPv6-only with NAT64/DNS64 (some mobile carriers) | No IPv4 address; a 64:ff9b::/96 prefix appears in DNS answers | Client over IPv6 (`ClientUseIPv6`, `ClientPreferIPv6ORPort`); Snowflake if the broker and STUN answer over IPv6 | No relay (relays need IPv4) |
+| Starlink and similar satellite | CGNAT on IPv4; often a public, routed IPv6 prefix | Snowflake | IPv6-only bridge (advanced, low value) |
+| 5G / LTE "home internet" boxes | CGNAT, usually IPv6, sometimes metered | Snowflake with a cap | Client |
+| ISP router the user can't log in to | No mapping protocol answers and the user says they can't change settings | Snowflake | Ask the ISP for a public IP or bridge mode |
+| Mesh Wi-Fi or several routers | Double-NAT check; mesh nodes in router mode add a NAT layer | Same as double NAT unless the mesh is in access-point mode | The guide says how to tell |
+| Whole-home VPN on the router, or a VPN app on the network | Public address belongs to a VPN provider (user confirms) | Snowflake (works, but check the VPN's terms) | Bridge only if the VPN provider offers port forwarding and allows it |
+| Captive portal (hotel, café, guest Wi-Fi) | HTTP requests get redirected to a login page; Tor can't bootstrap | Tell the user to log in through the PS5 browser first, then retry | Client afterwards |
+| IP changes often (daily DHCP leases, PPPoE reconnects) | Tor reports a new address more than once a day | Snowflake or private bridge (the app shows the new bridge line; friends must update theirs) | Public bridge; relay not recommended |
+| PS5 on Wi-Fi instead of wired | Interface type | Same as wired, but suggest wired for bridge and relay roles (drops hurt uptime) | — |
+| Slow or high-latency links (old DSL, geostationary satellite) | Bandwidth check, round-trip times | Snowflake with a low cap | Bridge; no relay |
+| Another Tor node or PS5 running OnionStation5 behind the same IP | Port already mapped, or Tor reports the address already in use by a relay | Use another port; only one relay per household in Auto mode | Snowflake on both |
+| PS5 clock wrong or NTP blocked | Tor refuses the consensus as out of date | Warn and show how to set the clock; nothing works until fixed | — |
 
 ## Setup check: how the app classifies the network
 
@@ -92,14 +154,17 @@ default (that would tell an outside site the user runs Tor).
    does) to learn "unrestricted" or "restricted".
 5. **IPv6 outbound.** STUN over IPv6, or a TCP connect to a Tor directory authority's IPv6
    address. Records whether IPv6 works at all.
-6. **Ask the user two questions**, in plain words:
+6. **Other checks:** captive portal (a plain HTTP request that comes back redirected), UDP
+   blocked (STUN times out but TCP works), a required proxy (direct TCP fails everywhere; the user
+   can enter one), NAT64 (no IPv4 address, IPv6 works), and the clock.
+7. **Ask the user two questions**, in plain words:
    - "Do you control this network's router?" (yes / no / not sure)
    - "Is your internet capped or metered?" (no / yes, with a monthly limit field)
-7. **Recommend.** Show the result as one sentence and one suggested mode, e.g. "Your provider
+8. **Recommend.** Show the result as one sentence and one suggested mode, e.g. "Your provider
    shares one internet address between many customers (CGNAT), so other computers can't connect
    in. Snowflake works fine here." Advanced details (addresses, NAT type, which protocol answered)
    sit behind a "Details" button.
-8. **Confirm** inbound modes only after Tor's self-test passes (see "Confirming reachability").
+9. **Confirm** inbound modes only after Tor's self-test passes (see "Confirming reachability").
 
 If any step fails or times out the app falls back to Snowflake, which needs none of it.
 
@@ -254,7 +319,7 @@ Additions:
 
 ## Exit node: not offered
 
-Unchanged. Abuse reports and police requests go to whoever owns the IP; home and building
+Unchanged, pending Jared's answer (asked 2026-10-26 whether a "full node" should include exits). Abuse reports and police requests go to whoever owns the IP; home and building
 connections usually forbid it; equipment seizures have happened; and the IP is the user's own.
 The Tor Project's advice is to run exits only on a host that knows and agrees, ideally not at
 home. Hard-coded off, not a hidden setting.
@@ -464,6 +529,8 @@ Jared's own network can't test bridge or relay modes from outside, so:
 8. Can a payload tell whether a game is running? (game-friendly bandwidth mode)
 9. Does the PS5 get and use a global IPv6 address on IPv6 networks, and does it accept inbound
    IPv6?
+10. Can a payload notice network changes (address change, Wi-Fi to wired) without polling, or does
+    Auto mode poll the interface list?
 
 ## Build order
 
@@ -482,7 +549,10 @@ Jared's own network can't test bridge or relay modes from outside, so:
    via control-port events. Tested with the chutney test network and a spare router.
 9. obfs4 in C++ (server and client); private bridge with bridge line and QR code; then public
    bridge. Interop-tested against lyrebird.
-10. Relay mode (off by default, with the uptime and blocking warnings).
+10. Relay mode (consent-gated, with the uptime and blocking warnings).
+10b. Auto mode ladder over everything above: promotion on proof, demotion on change, no
+     flapping, separate identities per role. Until this step, the app recommends and the user
+     picks.
 11. Censored-network client: Snowflake client, then obfs4 client, then WebTunnel client;
     bootstrap watching and Connection Assist.
 12. Optional: Snowflake NAT improvement with a mapped UDP range; IPv6 bridge; personal static
