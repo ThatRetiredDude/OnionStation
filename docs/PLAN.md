@@ -12,12 +12,14 @@ onion sites.
 ## Short version
 
 - **OnionStation5 is a full Tor node, not a single-mode app.** Every role a home user can safely
-  run is first-class: Snowflake proxy, private bridge, public bridge, guard/middle relay, onion
-  services and the Tor client. No user has to pick one; **Auto mode** (the default) runs the
-  strongest role their network allows and moves up or down by itself when the network changes.
-- **Snowflake proxy works on every network** that can reach the internet: any NAT, CGNAT, double
-  NAT, IPv6-only, no port forwarding, no router access. It is the default mode and the first thing
-  to build.
+  run is first-class: private bridge, public bridge, guard/middle relay, onion services and the
+  Tor client, plus two opt-in extras (Snowflake proxy and an expert-only exit relay). No user has
+  to pick one; **Auto mode** (the default) runs the strongest non-exit role their network allows
+  and moves up or down by itself when the network changes.
+- **Snowflake proxy is optional, off by default** (Jared, 2026-10-26). It works on every network
+  (any NAT, CGNAT, double NAT, no port forwarding), so the app suggests turning it on when the
+  network can't run a bridge or relay. It is the biggest rewrite in the plan, so it comes after
+  the core Tor roles in the build order.
 - **Bridge and relay modes need inbound connections.** The app finds out by itself whether it can
   get them: it tries automatic port mapping (UPnP IGD, NAT-PMP, PCP) if the user allows it, spots
   CGNAT and double NAT, checks IPv6, and offers a step-by-step manual port-forward guide. Tor's own
@@ -26,7 +28,9 @@ onion sites.
 - **Nobody has to understand NAT.** A setup check classifies the network (about 25 situations are
   covered below) and Auto mode acts on it. The user can pin a mode or set a ceiling ("never more
   than a bridge") instead.
-- **No exit node.** Unchanged from the first plan (see "Risks"). It stays out of the app.
+- **Exit relay is offered as an expert-only mode** (Jared, 2026-10-26): off by default, never
+  chosen by Auto mode, turned on only by hand after a warning that the Tor Project recommends
+  against running an exit at home. Reduced exit policy by default.
 - **Onion services from the PS5 need no open port at all.** They connect outward, so they work
   behind any NAT. The first use is a private status page the owner can open from their phone
   anywhere, protected by client authorization.
@@ -49,12 +53,12 @@ onion sites.
 | Private bridge (obfs4) | Entry point the owner shares with people they know | Yes, one TCP port | No | Low. Not listed or handed out by Tor. |
 | Public bridge (obfs4) | Entry point Tor hands out to censored users | Yes, one TCP port | No | Low. Not in the public relay list, but probed and blocked by censors. |
 | Middle / guard relay | Carries Tor traffic between relays | Yes, ORPort (TCP, IPv4 required) | No | Low to medium. IP goes on the public relay list; some sites block all relay IPs. |
-| Exit relay | Traffic leaves Tor onto the internet from the owner's IP | Yes | No | **High. Not offered.** |
+| Exit relay (expert only) | Traffic leaves Tor onto the internet from the owner's IP | Yes | No | **High.** Off by default; manual only; Tor Project recommends against it at home. |
 | Onion service | Hosts a page or service at a .onion address | **No** | **Yes** | Low for a private status page; depends on what is hosted. |
 | Tor client | The PS5 uses Tor (onion browsing, LAN proxy) | No | Yes | Low. It uses Tor, it doesn't help it. |
 
-Modes can run together: Snowflake proxy plus Tor client plus an onion service is the normal
-combination for someone with no open port. A bridge and a relay can't both run on the same Tor
+Modes can run together: Tor client plus an onion service (plus Snowflake, if turned on) is the
+normal combination for someone with no open port. A bridge and a relay can't both run on the same Tor
 instance, and the app shouldn't try.
 
 ## Auto mode: the strongest node each network allows
@@ -65,18 +69,19 @@ the user's consent and the measured bandwidth allow:
 | Rung | Role | Needs |
 |---|---|---|
 | 0 | Tor client only | Tor can bootstrap (with bridges if needed) |
-| 1 | Snowflake proxy | Outbound UDP works and the network isn't censored |
-| 2 | Private bridge | Rung 1, plus a reachable TCP port (self-test passed) |
+| 1 | Snowflake proxy (only if the user turned it on) | Outbound UDP works and the network isn't censored |
+| 2 | Private bridge | A reachable TCP port (self-test passed) |
 | 3 | Public bridge | Rung 2, plus several days of mostly-on uptime |
 | 4 | Guard/middle relay | Reachable IPv4 ORPort, at least ~16 Mbit/s each way, stable IP, steady uptime, and the user's explicit OK to publish their IP |
+| (5) | Exit relay | Never reached by Auto mode. Manual only (see "Exit relay: expert only"). |
 
 How it behaves:
 
-- **Contribute from the first minute.** Snowflake starts as soon as the setup check finishes
-  (rung 1). Probing for inbound reachability happens in the background while Snowflake already
-  helps people.
-- **Snowflake keeps running** alongside a bridge or relay if upload allows; it is a separate
-  process from Tor and serves different users. Bandwidth limits are split between them.
+- **Snowflake is the user's switch, not Auto mode's.** Auto mode never turns it on. When the
+  best rung the network allows is 0 (no inbound possible), the status screen shows the hint from
+  "When to turn Snowflake on". If the user has turned it on, it runs from the first minute while
+  inbound probing happens in the background, and keeps running alongside a bridge or relay if
+  upload allows (separate process, different users, bandwidth limits split between them).
 - **Promote only on proof.** A rung is reached only when Tor's own self-test confirms it (and
   for rung 4, after the bandwidth check and an uptime history the app keeps itself).
 - **Consent at the point it matters.** Opening a router port (rung 2) and publishing the IP as a
@@ -101,6 +106,10 @@ Manual control stays available: pin any rung, set a ceiling, or turn individual 
 
 ## Every kind of network, and what the app recommends
 
+Where this table recommends Snowflake, the app shows the "turn on Snowflake" hint; it doesn't
+switch Snowflake on by itself. Exit relays appear nowhere in the table because Auto mode never
+recommends them.
+
 | Network | How the app recognizes it | Recommended mode | Also possible |
 |---|---|---|---|
 | Public IPv4 on the PS5 (rare: modem in bridge mode, some fiber) | The PS5's own address is public | Relay or public bridge | Snowflake |
@@ -111,7 +120,7 @@ Manual control stays available: pin any rung, set a ceiling, or turn individual 
 | CGNAT (common on mobile, satellite, fiber and cable ISPs) | WAN address in 100.64.0.0/10, or STUN's public address differs from the router's WAN address | Snowflake | Bridge or relay over IPv6 only where it applies (see IPv6) |
 | IPv6 with a global address | Interface has a 2000::/3 address and an outbound IPv6 test works | Snowflake; IPv6 adds nothing a relay can use by itself | Bridge on IPv6 if the router firewall opens (pinhole), with a caveat |
 | Mobile hotspot / tethering | CGNAT plus usually a metered link | Snowflake with a low data cap, or nothing | Client only |
-| Shared or institutional network (dorm, workplace, building, café, hotel) | User answers "I don't control this network" | Snowflake, or client only if the network's rules forbid proxies | Nothing inbound. Never relays on networks the user doesn't control. |
+| Shared or institutional network (dorm, workplace, building, café, hotel) | User answers "I don't control this network" | Snowflake, or client only if the network's rules forbid proxies | Auto mode won't go inbound here; the user can, after a warning that complaints and blocks hit everyone on that IP. |
 | Censored country (Tor blocked) | Tor bootstrap stalls, or the Snowflake broker can't be reached; or user says so | **Client with bridges only.** No proxy, relay or bridge (useless there and riskier) | Onion browsing through bridges |
 | Network that only allows outbound 80/443 | Outbound tests on other ports fail | Client with `ReachableAddresses` limited to 80/443, or bridges on 443 | Snowflake usually still works (WebRTC over UDP/TURN is not guaranteed) |
 | ISP blocks some inbound ports (often 25, 80, 443, or everything below 1024) | Mapping works but the self-test fails on a low port | Bridge or relay on a random high port | Snowflake |
@@ -166,7 +175,8 @@ default (that would tell an outside site the user runs Tor).
    sit behind a "Details" button.
 9. **Confirm** inbound modes only after Tor's self-test passes (see "Confirming reachability").
 
-If any step fails or times out the app falls back to Snowflake, which needs none of it.
+If any step fails or times out the app falls back to client mode and shows the Snowflake hint,
+since Snowflake needs none of these checks.
 
 ## Automatic port mapping (UPnP IGD, NAT-PMP, PCP)
 
@@ -230,9 +240,9 @@ For users with a router that has no mapping protocol, or who prefer doing it the
 - Double NAT: works only if the user can also forward on the outer router, or switch one router
   to bridge/modem mode. The guide says which one is which (the outer one's LAN address is the inner
   one's WAN address).
-- Shared or institutional networks (Jared's building is one): Snowflake only, and only if the
-  network's rules allow it. Never relays or bridges on a network the user doesn't control, since
-  complaints and blocks land on whoever owns the IP and on every other user of it.
+- Shared or institutional networks (Jared's building is one): Auto mode stops at Snowflake (if
+  turned on). A user can still pick a bridge or relay by hand if the network lets them, after a
+  warning that complaints and blocks land on whoever owns the IP and on every other user of it.
 
 ## Confirming reachability
 
@@ -245,18 +255,32 @@ Tor already checks itself, so the app relies on that instead of its own test:
   `STATUS_SERVER` events `CHECKING_REACHABILITY`, `REACHABILITY_SUCCEEDED` and
   `REACHABILITY_FAILED`, and shows the user "Checking (can take up to 20 minutes)", "Reachable",
   or "Not reachable from the internet" with the likely reason from the setup check.
-- On failure the app offers: retry, the manual guide, or switch to Snowflake. After repeated
-  failures it switches to Snowflake by itself if the user ticked "fall back automatically" (on by
-  default).
+- On failure the app offers: retry, the manual guide, or turn on Snowflake. After repeated
+  failures Auto mode drops back to the highest rung that still holds (client, or Snowflake if the
+  user has it on).
 - Because the test goes out and comes back through other relays, a router without NAT loopback
   ("hairpinning") doesn't give a false failure.
 - For bridges, a reachable ORPort isn't enough: the obfs4 port must also be reachable. The bridge
   reachability is visible on Tor's bridge status page (bridges.torproject.org/status, by
   fingerprint) after a while; link to it from the details screen.
 
-## Snowflake proxy
+## Snowflake proxy (optional, off by default)
 
-Unchanged in substance from the first plan, plus a few additions for other networks.
+A setting the user turns on. Off by default because it is not needed by Tor itself, and because
+the people who can run a bridge or relay help more that way.
+
+### When to turn Snowflake on (text for the app)
+
+"Turn on Snowflake if you'd like to help people in censored countries reach Tor but your PS5 can't
+be a bridge or relay. That's the case if:
+- your internet provider shares one address between customers (CGNAT; common with mobile, 5G home
+  internet and satellite),
+- you're behind two routers, or on a building, dorm or work network,
+- you can't or don't want to open a port on your router.
+If your PS5 is already a bridge or relay, Snowflake is optional extra help. Don't turn it on if
+Tor is blocked where you live."
+
+The setup check decides when to show this hint: whenever the best rung it finds is 0.
 
 Rewritten in C++ on libdatachannel (Go has no PS5 build, and the PS5 kernel blocks or renumbers
 syscalls Go calls directly):
@@ -309,7 +333,8 @@ Additions:
   it earns the flags that bring real traffic. A PS5 that loses its jailbreak on every restart
   rarely meets the uptime part; the app says so before the user picks relay mode.
 - Set `ContactInfo` (published) and `Nickname`; explain both.
-- `ExitRelay 0` and `ExitPolicy reject *:*` are hard-coded; the user can't change them.
+- Relay mode is always non-exit (`ExitRelay 0`, `ExitPolicy reject *:*`). Exit is a separate,
+  manual mode (below), never a side effect of relay settings.
 - Bandwidth: `RelayBandwidthRate` / `RelayBandwidthBurst`, and `AccountingMax` with
   `AccountingStart` for monthly caps.
 - Several PS5s behind one IP: Tor limits how many relays share an address. The app doesn't need
@@ -317,12 +342,54 @@ Additions:
 - Family: an owner running more than one relay should declare them as a family; mention it in
   the docs, not the UI.
 
-## Exit node: not offered
+## Exit relay: expert only
 
-Unchanged, pending Jared's answer (asked 2026-10-26 whether a "full node" should include exits). Abuse reports and police requests go to whoever owns the IP; home and building
-connections usually forbid it; equipment seizures have happened; and the IP is the user's own.
-The Tor Project's advice is to run exits only on a host that knows and agrees, ideally not at
-home. Hard-coded off, not a hidden setting.
+Added at Jared's request (2026-10-26). Off by default and never chosen by Auto mode.
+
+**Principle (Jared, 2026-10-26): warn clearly, then let the user decide.** Laws and ISP terms
+differ a lot between countries (running an exit is ordinary in places like Switzerland or
+Germany), so the app informs instead of refusing. The only hard limits are technical ones.
+
+**The warning the app shows before turning it on** (once, with one confirm button; it stays
+readable under "About exit relays"):
+
+"The Tor Project recommends against running an exit relay from home. An exit sends other people's
+internet traffic out from your IP address. Abuse complaints, copyright notices and police
+requests about that traffic will come to you and your internet provider. Most home internet plans
+forbid it, your provider may cut you off, and in some countries operators' equipment has been
+seized during investigations. Websites, games and online services (possibly including PlayStation
+Network) may block or flag your IP. Only continue if your internet provider knows and agrees."
+
+Links: the Tor Project's relay operator guide and its exit-relay guidelines, and the EFF's Tor
+legal FAQ.
+
+**Technical requirements** (the only things that block it):
+- A reachable IPv4 ORPort, confirmed by Tor's self-test. Without it an exit can't work at all.
+
+**Things the app warns about but doesn't block** (shown with the warning if they apply):
+- The setup check found a shared or institutional network, a VPN, or a metered link.
+- No `ContactInfo`: abuse reports and the Tor Project can't reach the operator, and exits without
+  contact details are more likely to be flagged by the directory authorities. The app strongly
+  suggests an email but accepts "none".
+- Low upload bandwidth or short uptime: the exit will get little use.
+
+**Settings:**
+- `ExitRelay 1` with the Tor Project's reduced exit policy (web, mail retrieval, chat and similar
+  ports; no SMTP 25 and no common abuse/file-sharing ports). Tor has no built-in name for it, so
+  the app writes out the port list. A "custom policy" field is an advanced option.
+- `IPv6Exit` only if IPv6 is confirmed reachable.
+- DNS: exits resolve names for their users, and Tor recommends a local caching resolver rather
+  than the ISP's or a big public one. Whether a resolver can run inside the payload is a console
+  unknown; until then the system resolver is used and the app notes it.
+- An exit notice page served on port 80 (Tor's `DirPortFrontPage`) where the network allows,
+  explaining to anyone looking up the IP that it is a Tor exit.
+- Separate identity from the non-exit relay is not needed (the relay is already public), but
+  turning exit off later keeps the same relay and just sets `ExitRelay 0`.
+
+**Behaviour:** Auto mode never turns exit on by itself. If reachability is lost or the cap is
+reached, the exit pauses and resumes on its own when things recover, since the user already chose
+it. A network change (different router, new location) pauses it and asks the user once whether to
+keep exiting on the new network.
 
 ## Bandwidth, data caps and gaming
 
@@ -359,8 +426,9 @@ upstream, so each needs a C/C++ version:
 - **Bootstrap watching:** the app reads Tor's bootstrap progress from the control port. Stuck at
   the same step for a few minutes means Tor is probably blocked; the app suggests bridges.
 - **Risk note for this audience:** in some countries using Tor, or running anything that helps
-  others use it, is dangerous. The app should say this plainly, keep all relay/bridge/proxy modes
-  off in client-with-bridges mode, and not show "help others" prompts there.
+  others use it, is dangerous. The app should say this plainly, and Auto mode keeps all
+  help-others roles off and shows no "help others" prompts there. A user who knows their
+  situation can still turn them on by hand after the warning.
 
 ## Onion services hosted from the PS5
 
@@ -418,7 +486,8 @@ on a computer or phone when anonymity matters.
 
 ## Risks
 
-**Exit node:** see above. Not offered.
+**Exit relay:** see "Exit relay: expert only". The highest-risk role by far; manual, warned, and
+off by default.
 
 **Relays and bridges at home:** a listed relay's IP is public, and some sites, games and
 streaming services block every Tor relay IP, not only exits. That includes possibly PSN-adjacent
@@ -508,11 +577,13 @@ Jared's own network can't test bridge or relay modes from outside, so:
 
 ## What works and what doesn't (for the About page)
 
-- Works everywhere: Snowflake proxy, onion services (status page), Tor client, onion browsing,
-  home screen and during games.
-- Needs a port open to the internet: private bridge, public bridge, relay. The app checks for you.
-- Doesn't work behind CGNAT or double NAT: bridge and relay modes.
-- Not offered: exit node.
+- Works everywhere: Tor client, onion browsing, onion services (status page), and the optional
+  Snowflake proxy; home screen and during games.
+- Needs a port open to the internet: private bridge, public bridge, relay, exit. The app checks
+  for you.
+- Doesn't work behind CGNAT or double NAT: bridge, relay and exit modes.
+- Exit relay: expert only, off by default. The Tor Project recommends against running one at
+  home.
 - Stops: in rest mode (to check), after a PS5 restart until you re-jailbreak and reopen the app.
 - Not Tor Browser: no full Tor Browser privacy in the PS5 browser.
 
@@ -537,25 +608,27 @@ Jared's own network can't test bridge or relay modes from outside, so:
 0. Repo exists (ThatRetiredDude/OnionStation). Open the catalog reservation for PPSA99557.
 1. Tor client as a payload started by hand over 9021, SOCKS on the LAN; bootstrap to 100%.
    Answers unknown 1.
-2. Snowflake proxy in C++; broker hands it clients. Answers unknown 2. **First useful release
-   candidate for everyone.**
-3. App front end, background launch, keep-alive, status, limits, About page.
-4. Setup check (addresses, STUN, Snowflake NAT check, CGNAT/double-NAT detection) and the
-   recommendation screen. Answers unknowns 6, 7 and 9.
-5. Onion browsing path 1 and the HTTP shim; path 2 if path 1 fails. LAN page (path 5).
-6. Onion service status page with client authorization.
-7. First store release: Snowflake, client, onion browsing, onion status page.
-8. Port mapping (PCP, NAT-PMP, UPnP) with consent, leases and cleanup; manual guide; reachability
+2. App front end, background launch, keep-alive, status, limits, About page.
+3. Setup check (addresses, STUN, CGNAT/double-NAT detection) and the recommendation screen.
+   Answers unknowns 6, 7 and 9.
+4. Onion browsing path 1 and the HTTP shim; path 2 if path 1 fails. LAN page (path 5).
+5. Onion service status page with client authorization.
+6. First store release: client, onion browsing, onion status page.
+7. Port mapping (PCP, NAT-PMP, UPnP) with consent, leases and cleanup; manual guide; reachability
    via control-port events. Tested with the chutney test network and a spare router.
-9. obfs4 in C++ (server and client); private bridge with bridge line and QR code; then public
+8. obfs4 in C++ (server and client); private bridge with bridge line and QR code; then public
    bridge. Interop-tested against lyrebird.
-10. Relay mode (consent-gated, with the uptime and blocking warnings).
-10b. Auto mode ladder over everything above: promotion on proof, demotion on change, no
-     flapping, separate identities per role. Until this step, the app recommends and the user
-     picks.
-11. Censored-network client: Snowflake client, then obfs4 client, then WebTunnel client;
+9. Relay mode (consent-gated, with the uptime and blocking warnings), then the expert-only exit
+   mode with its warning, reduced exit policy and exit notice page.
+10. Auto mode ladder over everything above: promotion on proof, demotion on change, no
+    flapping, separate identities per role. Until this step, the app recommends and the user
+    picks.
+11. Snowflake proxy in C++ (optional setting) with the NAT check and the "when to turn it on"
+    hint. Answers unknown 2. Until this lands, users with no inbound can use Tor but can't help
+    the network, Jared's own PS5 included.
+12. Censored-network client: Snowflake client, then obfs4 client, then WebTunnel client;
     bootstrap watching and Connection Assist.
-12. Optional: Snowflake NAT improvement with a mapped UDP range; IPv6 bridge; personal static
+13. Optional: Snowflake NAT improvement with a mapped UDP range; IPv6 bridge; personal static
     onion site; phone controls on the status page.
 
 ## Prospero Store, title ID and name
@@ -574,13 +647,15 @@ Jared's own network can't test bridge or relay modes from outside, so:
   root; bump contentVersion and tag the same string; never replace a listed release ZIP; catalog
   PRs change one file; description up to 200 characters; author "ThatRetiredDude"; icon from
   Jared's own logo.
-- **Store description draft (under 200):** "Help people reach Tor from your PS5, on any home
-  network. Runs a Snowflake proxy in the background, even during games. Open onion sites too.
-  Needs a jailbroken PS5."
+- **Store description draft (under 200):** "Turn your PS5 into a Tor bridge or relay that adapts
+  to your network, or help through Snowflake. Runs in the background, even during games. Opens
+  onion sites. Needs a jailbroken PS5."
 
 ## Decisions still open
 
-1. Confirm no exit node (recommended: confirm).
+1. Decided 2026-10-26: Snowflake is an optional setting, off by default; exit relay is offered as
+   an expert-only manual mode with the Tor Project's at-home warning. Approach: warn clearly,
+   then let users decide; only technical limits block a mode.
 2. Whether public bridge and relay modes are in scope at all, or only private bridges (recommended:
    private bridge first, public bridge next, relay last, since a PS5's uptime suits relays least).
 3. Whether censored-network client transports (step 11) are in scope; they are a large rewrite
